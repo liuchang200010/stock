@@ -14,6 +14,7 @@ __date__ = '2023/3/10 '
 # 1.60日内某日收盘价>=60日均线>开盘价
 # 2.且【1】放量上涨
 # 3.且【1】间之前时间，任意一天收盘价与60日均线偏离在-5%~20%之间。
+# 4.当前股价 > MA5
 def check(code_name, data, date=None, threshold=60):
     origin_data = data
     if date is None:
@@ -26,7 +27,9 @@ def check(code_name, data, date=None, threshold=60):
     if len(data.index) < threshold:
         return False
 
+    data.loc[:, 'ma5'] = tl.MA(data['close'].values, timeperiod=5)
     data.loc[:, 'ma60'] = tl.MA(data['close'].values, timeperiod=60)
+    data['ma5'].values[np.isnan(data['ma5'].values)] = 0.0
     data['ma60'].values[np.isnan(data['ma60'].values)] = 0.0
 
     data = data.tail(n=threshold)
@@ -45,5 +48,9 @@ def check(code_name, data, date=None, threshold=60):
     for _close, _ma60 in zip(data_front['close'].values, data_front['ma60'].values):
         if not (-0.05 < ((_ma60 - _close) / _ma60) < 0.2):
             return False
+
+    # 当前股价必须站上MA5
+    if data.iloc[-1]['close'] <= data.iloc[-1]['ma5']:
+        return False
 
     return True
