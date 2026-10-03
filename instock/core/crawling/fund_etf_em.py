@@ -26,7 +26,7 @@ def fund_etf_spot_em() -> pd.DataFrame:
     :rtype: pandas.DataFrame
     """
     url = "http://88.push2.eastmoney.com/api/qt/clist/get"
-    page_size = 50
+    page_size = 100
     page_current = 1
     params = {
         "pn": page_current,
@@ -53,7 +53,7 @@ def fund_etf_spot_em() -> pd.DataFrame:
     page_count = math.ceil(data_count/page_size)
     while page_count > 1:
         # 添加随机延迟，避免爬取过快
-        time.sleep(random.uniform(1, 1.5))
+        time.sleep(random.uniform(2.5, 3.5))
         page_current = page_current + 1
         params["pn"] = page_current
         r =  fetcher.make_request(url, params=params)

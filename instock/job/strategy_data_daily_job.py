@@ -6,6 +6,7 @@ import concurrent.futures
 import pandas as pd
 import os.path
 import sys
+from functools import lru_cache
 
 cpath_current = os.path.dirname(os.path.dirname(__file__))
 cpath = os.path.abspath(os.path.join(cpath_current, os.pardir))
@@ -19,11 +20,80 @@ from instock.core.stockfetch import fetch_stock_top_entity_data
 __author__ = 'myh '
 __date__ = '2023/3/10 '
 
+# 策略表行情快照字段（列顺序与 tbs.TABLE_CN_STOCK_STRATEGY_QUOTE 保持一致）
+_QUOTE_FIELDS = ('new_price', 'change_rate', 'volume_ratio', 'turnoverrate',
+                 'amplitude', 'total_market_cap', 'industry')
+
+
+@lru_cache(maxsize=1)
+def _quote_snapshot() -> dict:
+    """code -> (最新价, 涨跌幅, 量比, 换手率, 振幅, 总市值, 所属板块)，取 cn_stock_selection 最新一日快照。"""
+    try:
+        rows = mdb.executeSqlFetch(
+            "SELECT `code`, `new_price`, `change_rate`, `volume_ratio`, `turnoverrate`, "
+            "`high_price`, `low_price`, `pre_close_price`, `total_market_cap`, `industry` "
+            "FROM `cn_stock_selection` WHERE `date` = (SELECT MAX(`date`) FROM `cn_stock_selection`)")
+        snap = {}
+        for (code, new_price, change_rate, volume_ratio, turnoverrate,
+             high, low, pre_close, cap, industry) in rows:
+            amplitude = None
+            if high is not None and low is not None and pre_close:
+                amplitude = round((high - low) / pre_close * 100, 2)
+            cap = round(cap / 1e8, 2) if cap is not None else None  # 元 -> 亿元
+            snap[code] = (new_price, change_rate, volume_ratio, turnoverrate,
+                          amplitude, cap, industry)
+        return snap
+    except Exception as e:
+        logging.error(f"strategy_data_daily_job._quote_snapshot处理异常：{e}")
+        return {}
+
+
+def _merge_quote_snapshot(data: pd.DataFrame) -> pd.DataFrame:
+    """给入选股票明细合并行情快照字段（最新价/涨跌幅/量比/换手率/振幅/总市值/所属板块）。"""
+    snap = _quote_snapshot()
+    vals = {f: [] for f in _QUOTE_FIELDS}
+    for code in data['code']:
+        row = snap.get(code, (None,) * len(_QUOTE_FIELDS))
+        for f, v in zip(_QUOTE_FIELDS, row):
+            vals[f].append(v)
+    for f in _QUOTE_FIELDS:
+        data[f] = vals[f]
+    return data
+
+# ---- 策略选股准入过滤（作用于全部 10 个策略表）----
+# 规则统一定义在 instock/core/stock_filter.py：排除 ST、仅主板、排除总市值不足 100 亿。
+from instock.core.stock_filter import market_cap_map, is_admitted, is_main_board
+
+
+def _strategy_filter(stocks_data: dict) -> dict:
+    """过滤策略候选股票：排除 ST、排除非主板、排除总市值不足 100 亿（含无市值数据的）。"""
+    if not stocks_data:
+        return stocks_data
+    caps = market_cap_map()
+    filtered = {}
+    st_skip, board_skip, cap_skip = 0, 0, 0
+    for k, v in stocks_data.items():
+        if is_admitted(k[1], k[2], caps):
+            filtered[k] = v
+        elif 'ST' in (k[2] or '').upper():
+            st_skip += 1
+        elif not is_main_board(k[1]):
+            board_skip += 1
+        else:
+            cap_skip += 1
+    logging.info(
+        f"策略准入过滤：ST排除 {st_skip} 只，非主板排除 {board_skip} 只，"
+        f"市值不足100亿/无市值数据排除 {cap_skip} 只，参与策略计算 {len(filtered)} 只")
+    return filtered
+
 
 def prepare(date, strategy):
     try:
         stocks_data = stock_hist_data(date=date).get_data()
         if stocks_data is None:
+            return
+        stocks_data = _strategy_filter(stocks_data)
+        if not stocks_data:
             return
         table_name = strategy['name']
         strategy_func = strategy['func']
@@ -42,6 +112,8 @@ def prepare(date, strategy):
         data = pd.DataFrame(results)
         columns = tuple(tbs.TABLE_CN_STOCK_FOREIGN_KEY['columns'])
         data.columns = columns
+        # 合并行情快照字段（最新价/涨跌幅/量比/换手率/振幅/总市值/所属板块）
+        data = _merge_quote_snapshot(data)
         _columns_backtest = tuple(tbs.TABLE_CN_STOCK_BACKTEST_DATA['columns'])
         data = pd.concat([data, pd.DataFrame(columns=_columns_backtest)])
         # 单例，时间段循环必须改时间

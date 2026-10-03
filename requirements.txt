@@ -1,4 +1,4 @@
-numpy==2.4.1
+numpy>=1.26,<2.2
 pandas==2.3.3
 py_mini_racer==0.6.0
 mini-racer==0.13.2
@@ -11,8 +11,9 @@ Logbook==1.9.2
 SQLAlchemy==2.0.45
 tornado==6.5.4
 tqdm==4.67.1
-urllib3==2.6.3
+urllib3>=1.25.8,<2.0
 easytrader==0.23.7
 beautifulsoup4==4.14.3
 pycryptodome==3.23.0
 python_dateutil==2.9.0.post0
+baostock==0.9.4

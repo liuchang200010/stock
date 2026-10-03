@@ -388,30 +388,47 @@ TABLE_CN_STOCK_INDICATORS_BUY = {'name': 'cn_stock_indicators_buy', 'cn': '股�
 TABLE_CN_STOCK_INDICATORS_SELL = {'name': 'cn_stock_indicators_sell', 'cn': '股票指标卖出',
                                   'columns': _tmp_columns}
 
+# 策略表行情快照字段：入选股附带最新价/涨跌幅/量比/换手率/振幅/总市值/所属板块
+# 数据来源：cn_stock_selection 最新一日快照（振幅由 最高/最低/昨收 计算）
+TABLE_CN_STOCK_STRATEGY_QUOTE = {'columns': {
+    'new_price': {'type': FLOAT, 'cn': '最新价', 'size': 70},
+    'change_rate': {'type': FLOAT, 'cn': '涨跌幅', 'size': 70},
+    'volume_ratio': {'type': FLOAT, 'cn': '量比', 'size': 70},
+    'turnoverrate': {'type': FLOAT, 'cn': '换手率', 'size': 70},
+    'amplitude': {'type': FLOAT, 'cn': '振幅', 'size': 70},
+    'total_market_cap': {'type': FLOAT, 'cn': '总市值(亿)', 'size': 120},
+    'industry': {'type': VARCHAR(50, _COLLATE), 'cn': '所属板块', 'size': 100}}}
+
+# 策略表列 = 外键(date/code/name) + 行情快照字段 + 回测收益率列
+# 注意：收益率列必须保持在最后——回测任务以最后一列(rate_100)是否为 NULL 判断待回填
+_strategy_columns = TABLE_CN_STOCK_FOREIGN_KEY['columns'].copy()
+_strategy_columns.update(TABLE_CN_STOCK_STRATEGY_QUOTE['columns'])
+_strategy_columns.update(TABLE_CN_STOCK_BACKTEST_DATA['columns'])
+
 TABLE_CN_STOCK_STRATEGIES = [
     {'name': 'cn_stock_strategy_enter', 'cn': '放量上涨', 'size': 70, 'func': enter.check_volume,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_keep_increasing', 'cn': '均线多头', 'size': 70, 'func': keep_increasing.check,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_parking_apron', 'cn': '停机坪', 'size': 70, 'func': parking_apron.check,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_backtrace_ma250', 'cn': '回踩年线', 'size': 70, 'func': backtrace_ma250.check,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_breakthrough_platform', 'cn': '突破平台', 'size': 70,
      'func': breakthrough_platform.check,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_low_backtrace_increase', 'cn': '无大幅回撤', 'size': 70,
      'func': low_backtrace_increase.check,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_turtle_trade', 'cn': '海龟交易法则', 'size': 70, 'func': turtle_trade.check_enter,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_high_tight_flag', 'cn': '高而窄的旗形', 'size': 70,
      'func': high_tight_flag.check_high_tight,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_climax_limitdown', 'cn': '放量跌停', 'size': 70, 'func': climax_limitdown.check,
-     'columns': _tmp_columns},
+     'columns': _strategy_columns},
     {'name': 'cn_stock_strategy_low_atr', 'cn': '低ATR成长', 'size': 70, 'func': low_atr.check_low_increase,
-     'columns': _tmp_columns}
+     'columns': _strategy_columns}
 ]
 
 STOCK_KLINE_PATTERN_DATA = {'name': 'cn_stock_pattern_recognitions', 'cn': 'K线形态',

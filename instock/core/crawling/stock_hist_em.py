@@ -4,6 +4,7 @@
 Date: 2022/6/19 15:26
 Desc: 东方财富网-行情首页-沪深京 A 股
 """
+import logging
 import random
 import time
 
@@ -12,11 +13,25 @@ import math
 from functools import lru_cache
 from instock.core.eastmoney_fetcher import eastmoney_fetcher
 
+try:
+    from instock.core.crawling import stock_hist_baostock as sb
+except ImportError:  # baostock 未安装时降级为纯东财模式，不阻塞任务
+    sb = None
+
 __author__ = 'myh '
 __date__ = '2025/12/31 '
 
 # 创建全局实例，供所有函数使用
 fetcher = eastmoney_fetcher()
+
+# ---- K 线东财接口熔断器 ----
+# 东财 push2his 被 WAF 限流时（RemoteDisconnected），连续失败达到阈值后
+# 在冷却窗口内直接走 baostock 备源，避免每只股票都白跑一轮 3 次重试。
+_kline_fail_streak = 0
+_kline_em_blocked_until = 0.0
+_KLINE_BREAK_THRESHOLD = 5     # 连续失败 5 次触发熔断
+_KLINE_BREAK_SECONDS = 1800.0  # 熔断冷却 30 分钟，之后放行探测请求
+
 
 def stock_zh_a_spot_em() -> pd.DataFrame:
     """
@@ -26,7 +41,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     :rtype: pandas.DataFrame
     """
     url = "http://82.push2.eastmoney.com/api/qt/clist/get"
-    page_size = 50
+    page_size = 100
     page_current = 1
     params = {
         "pn": page_current,
@@ -51,7 +66,7 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     page_count = math.ceil(data_count/page_size)
     while page_count > 1:
         # 添加随机延迟，避免爬取过快
-        time.sleep(random.uniform(1, 1.5))
+        time.sleep(random.uniform(2.5, 3.5))
         page_current = page_current + 1
         params["pn"] = page_current
         r =  fetcher.make_request(url, params=params)
@@ -191,122 +206,32 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
 @lru_cache()
 def code_id_map_em() -> dict:
     """
-    东方财富-股票和市场代码
-    http://quote.eastmoney.com/center/gridlist.html#hs_a_board
+    股票代码 -> 市场ID 映射（离线推导版）。
+    原实现通过东财 clist 接口翻页拉取全市场代码（约 60+ 次请求），
+    在东财 WAF 限流下极易断连导致整个任务失败。
+    实际上 secid 的市场前缀由代码段唯一确定，直接按前缀推导，无需联网：
+        6xxxxx -> 1 (上交所)；0/3xxxxx -> 0 (深交所)；4/8/9xxxxx -> 0 (北交所/B股)
     :return: 股票和市场代码
     :rtype: dict
     """
-    url = "http://80.push2.eastmoney.com/api/qt/clist/get"
-    page_size = 50
-    page_current = 1
-    params = {
-        "pn": page_current,
-        "pz": page_size,
-        "po": "1",
-        "np": "1",
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-        "fltt": "2",
-        "invt": "2",
-        "fid": "f12",
-        "fs": "m:1 t:2,m:1 t:23",
-        "fields": "f12",
-        "_": "1623833739532",
-    }
-    r =  fetcher.make_request(url, params=params)
-    data_json = r.json()
-    data = data_json["data"]["diff"]
-    if not data:
-        return dict()
+    code_id_dict = {}
+    # secid 市场前缀由代码段唯一确定：
+    #   6/9 开头 -> 1（上交所 A 股/科创板/B 股）；5 开头 -> 1（沪市基金/ETF）
+    #   其余（0/3 开头深市、4/8 开头北交所） -> 0
+    def _market_id(code: str) -> int:
+        if code.startswith(('5', '6', '9')):
+            return 1
+        return 0
 
-    data_count = data_json["data"]["total"]
-    page_count = math.ceil(data_count/page_size)
-    while page_count > 1:
-        # 添加随机延迟，避免爬取过快
-        time.sleep(random.uniform(1, 1.5))
-        page_current = page_current + 1
-        params["pn"] = page_current
-        r =  fetcher.make_request(url, params=params)
-        data_json = r.json()
-        _data = data_json["data"]["diff"]
-        data.extend(_data)
-        page_count =page_count - 1
-
-    temp_df = pd.DataFrame(data)
-    temp_df["market_id"] = 1
-    temp_df.columns = ["sh_code", "sh_id"]
-    code_id_dict = dict(zip(temp_df["sh_code"], temp_df["sh_id"]))
-    page_current = 1
-    params = {
-        "pn": page_current,
-        "pz": page_size,
-        "po": "1",
-        "np": "1",
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-        "fltt": "2",
-        "invt": "2",
-        "fid": "f12",
-        "fs": "m:0 t:6,m:0 t:80",
-        "fields": "f12",
-        "_": "1623833739532",
-    }
-    r =  fetcher.make_request(url, params=params)
-    data_json = r.json()
-    data = data_json["data"]["diff"]
-    if not data:
-        return dict()
-
-    data_count = data_json["data"]["total"]
-    page_count = math.ceil(data_count/page_size)
-    while page_count > 1:
-        # 添加随机延迟，避免爬取过快
-        time.sleep(random.uniform(1, 1.5))
-        page_current = page_current + 1
-        params["pn"] = page_current
-        r =  fetcher.make_request(url, params=params)
-        data_json = r.json()
-        _data = data_json["data"]["diff"]
-        data.extend(_data)
-        page_count =page_count - 1
-
-    temp_df_sz = pd.DataFrame(data)
-    temp_df_sz["sz_id"] = 0
-    code_id_dict.update(dict(zip(temp_df_sz["f12"], temp_df_sz["sz_id"])))
-    page_current = 1
-    params = {
-        "pn": page_current,
-        "pz": page_size,
-        "po": "1",
-        "np": "1",
-        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-        "fltt": "2",
-        "invt": "2",
-        "fid": "f12",
-        "fs": "m:0 t:81 s:2048",
-        "fields": "f12",
-        "_": "1623833739532",
-    }
-    r =  fetcher.make_request(url, params=params)
-    data_json = r.json()
-    data = data_json["data"]["diff"]
-    if not data:
-        return dict()
-
-    data_count = data_json["data"]["total"]
-    page_count = math.ceil(data_count/page_size)
-    while page_count > 1:
-        # 添加随机延迟，避免爬取过快
-        time.sleep(random.uniform(1, 1.5))
-        page_current = page_current + 1
-        params["pn"] = page_current
-        r =  fetcher.make_request(url, params=params)
-        data_json = r.json()
-        _data = data_json["data"]["diff"]
-        data.extend(_data)
-        page_count =page_count - 1
-
-    temp_df_sz = pd.DataFrame(data)
-    temp_df_sz["bj_id"] = 0
-    code_id_dict.update(dict(zip(temp_df_sz["f12"], temp_df_sz["bj_id"])))
+    # 预生成常见代码段：覆盖深主板 000/001/002/003、创业板 300/301/302、
+    # 北交所 43x/83x/87x、沪市主板 600/601/603/605/606/608 与科创板 688/689。
+    for head in ('000', '001', '002', '003', '300', '301', '302',
+                 '430', '830', '831', '832', '833', '834', '835', '836', '837',
+                 '838', '839', '870', '871', '872', '873',
+                 '600', '601', '603', '605', '606', '608', '688', '689'):
+        for n in range(0, 1000):
+            code = f"{head}{n:03d}"
+            code_id_dict[code] = _market_id(code)
     return code_id_dict
 
 
@@ -318,7 +243,7 @@ def stock_zh_a_hist(
     adjust: str = "",
 ) -> pd.DataFrame:
     """
-    东方财富网-行情首页-沪深京 A 股-每日行情
+    东方财富网-行情首页-沪深京 A 股-每日行情（东财被限流时自动降级 baostock 备源）
     https://quote.eastmoney.com/concept/sh603777.html?from=classic
     :param symbol: 股票代码
     :type symbol: str
@@ -332,6 +257,56 @@ def stock_zh_a_hist(
     :type adjust: str
     :return: 每日行情
     :rtype: pandas.DataFrame
+    """
+    global _kline_fail_streak, _kline_em_blocked_until
+
+    def _baostock_fallback():
+        if sb is None:
+            raise RuntimeError("baostock 未安装，K线备源不可用")
+        return sb.stock_zh_a_hist_baostock(
+            symbol=symbol, period=period,
+            start_date=start_date, end_date=end_date, adjust=adjust,
+        )
+
+    # 熔断窗口内：东财 K 线大概率仍被封锁，直接走 baostock 备源
+    if time.time() < _kline_em_blocked_until:
+        return _baostock_fallback()
+
+    try:
+        temp_df = _stock_zh_a_hist_em(
+            symbol=symbol, period=period,
+            start_date=start_date, end_date=end_date, adjust=adjust,
+        )
+        _kline_fail_streak = 0
+        if temp_df is None or len(temp_df.index) == 0:
+            # 东财返回空（可能被软性拦截），尝试备源兜底
+            fallback = _baostock_fallback()
+            return fallback if len(fallback.index) > 0 else temp_df
+        return temp_df
+    except Exception as e:
+        _kline_fail_streak += 1
+        if _kline_fail_streak >= _KLINE_BREAK_THRESHOLD:
+            _kline_em_blocked_until = time.time() + _KLINE_BREAK_SECONDS
+            logging.warning(
+                "stock_hist_em：东财K线连续 %d 次失败，%d 分钟内直接使用 baostock 备源",
+                _kline_fail_streak, int(_KLINE_BREAK_SECONDS / 60),
+            )
+        logging.warning(
+            "stock_hist_em：东财K线获取失败[%s]：%s，尝试 baostock 备源",
+            symbol, e,
+        )
+        return _baostock_fallback()
+
+
+def _stock_zh_a_hist_em(
+    symbol: str = "000001",
+    period: str = "daily",
+    start_date: str = "19700101",
+    end_date: str = "20500101",
+    adjust: str = "",
+) -> pd.DataFrame:
+    """
+    东方财富 push2his K 线原始实现（备源降级前的直连通道）。
     """
     code_id_dict = code_id_map_em()
     adjust_dict = {"qfq": "1", "hfq": "2", "": "0"}

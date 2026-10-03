@@ -14,6 +14,7 @@ import instock.lib.run_template as runt
 import instock.core.tablestructure as tbs
 import instock.lib.database as mdb
 import instock.core.stockfetch as stf
+from instock.core.stock_filter import filter_dataframe
 
 __author__ = 'myh '
 __date__ = '2023/3/10 '
@@ -229,15 +230,34 @@ def save_nph_stock_bonus(date, before=True):
 def stock_spot_buy(date):
     try:
         _table_name = tbs.TABLE_CN_STOCK_SPOT['name']
-        if not mdb.checkTableIsExist(_table_name):
-            return
-
-        sql = f'''SELECT * FROM `{_table_name}` WHERE `date` = '{date}' and 
-                `pe9` > 0 and `pe9` <= 20 and `pbnewmrq` <= 10 and `roe_weight` >= 15'''
-        data = pd.read_sql(sql=sql, con=mdb.engine())
-        data = data.drop_duplicates(subset="code", keep="last")
+        data = None
+        if mdb.checkTableIsExist(_table_name):
+            sql = f'''SELECT * FROM `{_table_name}` WHERE `date` = '{date}' and
+                    `pe9` > 0 and `pe9` <= 20 and `pbnewmrq` <= 10 and `roe_weight` >= 15'''
+            data = pd.read_sql(sql=sql, con=mdb.engine())
+        if data is None or len(data.index) == 0:
+            # 在线实时行情缺失（如东财 clist 接口被限流导致 cn_stock_spot 未生成）时，
+            # 回退到本地 cn_stock_selection 综合选股表（同样包含 pe9/pbnewmrq/roe_weight 字段）。
+            sel_table = tbs.TABLE_CN_STOCK_SELECTION['name']
+            if not mdb.checkTableIsExist(sel_table):
+                return
+            sql = f'''SELECT * FROM `{sel_table}` WHERE `date` = (SELECT MAX(`date`) FROM `{sel_table}`) and
+                    `pe9` > 0 and `pe9` <= 20 and `pbnewmrq` <= 10 and `roe_weight` >= 15'''
+            data = pd.read_sql(sql=sql, con=mdb.engine())
+            if len(data.index) > 0:
+                data['date'] = date.strftime("%Y-%m-%d")
+                logging.info(f"cn_stock_spot 缺失，基本面选股回退使用本地综合选股表，命中 {len(data.index)} 只")
         if len(data.index) == 0:
             return
+
+        data = data.drop_duplicates(subset="code", keep="last")
+
+        # 选股准入过滤（与策略任务同一规则）：排除 ST、仅主板、排除总市值不足 100 亿
+        data, st_skip, board_skip, cap_skip = filter_dataframe(data)
+        if len(data.index) == 0:
+            return
+        logging.info(f"基本面选股准入过滤：ST排除 {st_skip} 只，非主板排除 {board_skip} 只，"
+                     f"市值不足100亿/无市值数据排除 {cap_skip} 只，入选 {len(data.index)} 只")
 
         table_name = tbs.TABLE_CN_STOCK_SPOT_BUY['name']
         # 删除老数据。
@@ -247,6 +267,10 @@ def stock_spot_buy(date):
             cols_type = None
         else:
             cols_type = tbs.get_field_types(tbs.TABLE_CN_STOCK_SPOT_BUY['columns'])
+
+        # 只保留目标表定义中存在的列，避免综合选股表独有列导致写入失败
+        valid_cols = [c for c in data.columns if c in tbs.TABLE_CN_STOCK_SPOT_BUY['columns']]
+        data = data[valid_cols]
 
         mdb.insert_db_from_df(data, table_name, cols_type, False, "`date`,`code`")
     except Exception as e:
