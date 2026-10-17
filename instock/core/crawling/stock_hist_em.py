@@ -33,13 +33,55 @@ _KLINE_BREAK_THRESHOLD = 5     # 连续失败 5 次触发熔断
 _KLINE_BREAK_SECONDS = 1800.0  # 熔断冷却 30 分钟，之后放行探测请求
 
 
+# ---- 全市场实时行情字段清单（clist 与 ulist 共用，40 个字段与中文列一一对应） ----
+_SPOT_FIELDS = (
+    "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11",
+    "f12", "f14", "f15", "f16", "f17", "f18", "f20", "f21", "f22", "f23",
+    "f24", "f25", "f26", "f37", "f38", "f39", "f40", "f41", "f45", "f46",
+    "f48", "f49", "f57", "f61", "f100", "f112", "f113", "f114", "f115", "f221",
+)
+_SPOT_FIELDS_STR = ",".join(_SPOT_FIELDS)
+_SPOT_CN_COLUMNS = [
+    "最新价", "涨跌幅", "涨跌额", "成交量", "成交额", "振幅", "换手率",
+    "市盈率动", "量比", "5分钟涨跌", "代码", "名称", "最高", "最低",
+    "今开", "昨收", "总市值", "流通市值", "涨速", "市净率", "60日涨跌幅",
+    "年初至今涨跌幅", "上市时间", "加权净资产收益率", "总股本", "已流通股份",
+    "营业收入", "营业收入同比增长", "归属净利润", "归属净利润同比增长",
+    "每股未分配利润", "毛利率", "资产负债率", "每股公积金", "所处行业",
+    "每股收益", "每股净资产", "市盈率静", "市盈率TTM", "报告期",
+]
+_SPOT_ORDER = [
+    "代码", "名称", "最新价", "涨跌幅", "涨跌额", "成交量", "成交额",
+    "振幅", "换手率", "量比", "今开", "最高", "最低", "昨收", "涨速",
+    "5分钟涨跌", "60日涨跌幅", "年初至今涨跌幅", "市盈率动", "市盈率TTM",
+    "市盈率静", "市净率", "每股收益", "每股净资产", "每股公积金",
+    "每股未分配利润", "加权净资产收益率", "毛利率", "资产负债率", "营业收入",
+    "营业收入同比增长", "归属净利润", "归属净利润同比增长", "报告期",
+    "总股本", "已流通股份", "总市值", "流通市值", "所处行业", "上市时间",
+]
+
+
 def stock_zh_a_spot_em() -> pd.DataFrame:
     """
     东方财富网-沪深京 A 股-实时行情
     https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+    clist 逐页翻页极易被 WAF 限流（RemoteDisconnected），
+    失败或返回空时自动切换 ulist.np/get 批量行情备源（实测不受 clist 限流影响）。
     :return: 实时行情
     :rtype: pandas.DataFrame
     """
+    try:
+        temp_df = _spot_em_via_clist()
+        if temp_df is not None and len(temp_df.index) > 0:
+            return temp_df
+        raise RuntimeError("clist 返回空数据")
+    except Exception as e:
+        logging.warning(f"stock_zh_a_spot_em：clist 行情被限流或失败（{e}），切换 ulist 批量备源")
+    return _spot_em_via_ulist()
+
+
+def _spot_em_via_clist() -> pd.DataFrame:
+    """clist 逐页翻页拉取全市场行情（限流最严的路径，失败交给调用方降级）。"""
     url = "http://82.push2.eastmoney.com/api/qt/clist/get"
     page_size = 100
     page_current = 1
@@ -53,10 +95,10 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
         "invt": "2",
         "fid": "f12",
         "fs": "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23,m:0 t:81 s:2048",
-        "fields": "f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f14,f15,f16,f17,f18,f20,f21,f22,f23,f24,f25,f26,f37,f38,f39,f40,f41,f45,f46,f48,f49,f57,f61,f100,f112,f113,f114,f115,f221",
+        "fields": _SPOT_FIELDS_STR,
         "_": "1623833739532",
     }
-    r =  fetcher.make_request(url, params=params)
+    r = fetcher.make_request(url, params=params)
     data_json = r.json()
     data = data_json["data"]["diff"]
     if not data:
@@ -69,99 +111,22 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
         time.sleep(random.uniform(2.5, 3.5))
         page_current = page_current + 1
         params["pn"] = page_current
-        r =  fetcher.make_request(url, params=params)
+        r = fetcher.make_request(url, params=params)
         data_json = r.json()
         _data = data_json["data"]["diff"]
         data.extend(_data)
-        page_count =page_count - 1
+        page_count = page_count - 1
 
+    return _parse_spot_df(data)
+
+
+def _parse_spot_df(data: list) -> pd.DataFrame:
+    """clist/ulist 返回的字段字典列表 -> 与项目表列序一致的 DataFrame。"""
     temp_df = pd.DataFrame(data)
-    temp_df.columns = [
-        "最新价",
-        "涨跌幅",
-        "涨跌额",
-        "成交量",
-        "成交额",
-        "振幅",
-        "换手率",
-        "市盈率动",
-        "量比",
-        "5分钟涨跌",
-        "代码",
-        "名称",
-        "最高",
-        "最低",
-        "今开",
-        "昨收",
-        "总市值",
-        "流通市值",
-        "涨速",
-        "市净率",
-        "60日涨跌幅",
-        "年初至今涨跌幅",
-        "上市时间",
-        "加权净资产收益率",
-        "总股本",
-        "已流通股份",
-        "营业收入",
-        "营业收入同比增长",
-        "归属净利润",
-        "归属净利润同比增长",
-        "每股未分配利润",
-        "毛利率",
-        "资产负债率",
-        "每股公积金",
-        "所处行业",
-        "每股收益",
-        "每股净资产",
-        "市盈率静",
-        "市盈率TTM",
-        "报告期"
-    ]
-    temp_df = temp_df[
-        [
-            "代码",
-            "名称",
-            "最新价",
-            "涨跌幅",
-            "涨跌额",
-            "成交量",
-            "成交额",
-            "振幅",
-            "换手率",
-            "量比",
-            "今开",
-            "最高",
-            "最低",
-            "昨收",
-            "涨速",
-            "5分钟涨跌",
-            "60日涨跌幅",
-            "年初至今涨跌幅",
-            "市盈率动",
-            "市盈率TTM",
-            "市盈率静",
-            "市净率",
-            "每股收益",
-            "每股净资产",
-            "每股公积金",
-            "每股未分配利润",
-            "加权净资产收益率",
-            "毛利率",
-            "资产负债率",
-            "营业收入",
-            "营业收入同比增长",
-            "归属净利润",
-            "归属净利润同比增长",
-            "报告期",
-            "总股本",
-            "已流通股份",
-            "总市值",
-            "流通市值",
-            "所处行业",
-            "上市时间"
-        ]
-    ]
+    # 个别字段缺失时补齐为 NaN，保证列数与顺序一致
+    temp_df = temp_df.reindex(columns=list(_SPOT_FIELDS))
+    temp_df.columns = _SPOT_CN_COLUMNS
+    temp_df = temp_df[_SPOT_ORDER]
     temp_df["最新价"] = pd.to_numeric(temp_df["最新价"], errors="coerce")
     temp_df["涨跌幅"] = pd.to_numeric(temp_df["涨跌幅"], errors="coerce")
     temp_df["涨跌额"] = pd.to_numeric(temp_df["涨跌额"], errors="coerce")
@@ -201,6 +166,46 @@ def stock_zh_a_spot_em() -> pd.DataFrame:
     temp_df["上市时间"] = pd.to_datetime(temp_df["上市时间"], format='%Y%m%d', errors="coerce")
 
     return temp_df
+
+
+def _spot_em_via_ulist() -> pd.DataFrame:
+    """
+    ulist.np/get 批量行情备源：自选股批量行情接口。
+    单请求可带 300 个 secid，全市场仅需 ~15 个请求，实测不受 clist 的 WAF 频率限制。
+    股票清单取本地 cn_stock_selection 最新一日快照（与选股/策略任务的消费方一致），
+    当日新上市且尚未入清单的股票会缺失，待 clist 恢复后自动补齐。
+    """
+    import instock.lib.database as mdb
+    rows = mdb.executeSqlFetch(
+        "SELECT `code` FROM `cn_stock_selection` "
+        "WHERE `date` = (SELECT MAX(`date`) FROM `cn_stock_selection`)")
+    codes = [r[0] for r in rows] if rows else []
+    if not codes:
+        raise RuntimeError("本地无股票清单，ulist 备源不可用")
+    logging.info(f"ulist 备源：按本地清单 {len(codes)} 只股票分批拉取全市场行情")
+
+    def _secid(c: str) -> str:
+        return ("1." if c.startswith(("5", "6", "9")) else "0.") + c
+
+    url = "http://82.push2.eastmoney.com/api/qt/ulist.np/get"
+    batch_size = 300
+    data = []
+    for i in range(0, len(codes), batch_size):
+        chunk = codes[i:i + batch_size]
+        params = {
+            "fltt": "2",
+            "invt": "2",
+            "fields": _SPOT_FIELDS_STR,
+            "secids": ",".join(_secid(c) for c in chunk),
+        }
+        r = fetcher.make_request(url, params=params)
+        diff = (r.json().get("data") or {}).get("diff") or []
+        data.extend(diff)
+        time.sleep(1.2)  # 批量接口保持 1s 以上间隔，避免触发新的限流
+    if not data:
+        raise RuntimeError("ulist 备源返回空数据")
+    logging.info(f"ulist 备源：共拉取 {len(data)} 只行情")
+    return _parse_spot_df(data)
 
 
 @lru_cache()
@@ -296,6 +301,11 @@ def stock_zh_a_hist(
             symbol, e,
         )
         return _baostock_fallback()
+
+
+def em_kline_blocked() -> bool:
+    """东财K线熔断状态查询：True 表示处于熔断窗口（调用会直接走 baostock 备源）。"""
+    return time.time() < _kline_em_blocked_until
 
 
 def _stock_zh_a_hist_em(

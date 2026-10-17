@@ -3,7 +3,8 @@
 """
 选股准入过滤（共享模块）——供策略任务与基本面选股任务统一使用：
 1) ST / *ST 股票不计入
-2) 总市值小于 100 亿的股票不计入（市值取本地 cn_stock_selection 最新一日快照）
+2) 总市值下限（MIN_MARKET_CAP）：设为 0 表示取消市值限制（2026-10-17 起，
+   不足下限或无市值数据的股票均放行）
 3) 仅保留主板股票（沪主板 60x，深主板 000/001/002/003 含原中小板）；
    排除创业板 300/301/302、科创板 688/689、北交所 4x/8x/92 及 B 股等
 """
@@ -13,7 +14,7 @@ from functools import lru_cache
 import instock.lib.database as mdb
 
 EXCLUDE_ST = True
-MIN_MARKET_CAP = 100 * 1e8  # 单位：元
+MIN_MARKET_CAP = 0  # 单位：元；0 = 取消市值限制（原为 100 * 1e8）
 MAIN_BOARD_ONLY = True
 
 # 主板代码前缀：沪主板 600/601/603/605；深主板 000/001/002/003（002 原中小板已于 2021 年并入深主板）
@@ -39,11 +40,13 @@ def market_cap_map() -> dict:
 
 
 def is_admitted(code: str, name: str, caps: dict = None) -> bool:
-    """单只股票准入判断：排除 ST、排除非主板、排除总市值不足 100 亿（含无市值数据的）。"""
+    """单只股票准入判断：排除 ST、排除非主板；市值下限 >0 时排除不足者。"""
     if EXCLUDE_ST and name and 'ST' in str(name).upper():
         return False
     if MAIN_BOARD_ONLY and not is_main_board(code):
         return False
+    if MIN_MARKET_CAP <= 0:
+        return True  # 市值限制已取消
     if caps is None:
         caps = market_cap_map()
     cap = caps.get(code)
@@ -52,7 +55,7 @@ def is_admitted(code: str, name: str, caps: dict = None) -> bool:
 
 def filter_dataframe(df, code_col: str = 'code', name_col: str = 'name'):
     """对 DataFrame 按准入规则过滤，返回 (过滤后df, ST排除数, 非主板排除数, 市值排除数)。"""
-    caps = market_cap_map()
+    caps = market_cap_map() if MIN_MARKET_CAP > 0 else {}
     st_skip, board_skip, cap_skip = 0, 0, 0
     keep_codes = set()
     for code, name in zip(df[code_col], df[name_col]):
@@ -62,10 +65,11 @@ def filter_dataframe(df, code_col: str = 'code', name_col: str = 'name'):
         if MAIN_BOARD_ONLY and not is_main_board(code):
             board_skip += 1
             continue
-        cap = caps.get(code)
-        if cap is None or cap < MIN_MARKET_CAP:
-            cap_skip += 1
-            continue
+        if MIN_MARKET_CAP > 0:
+            cap = caps.get(code)
+            if cap is None or cap < MIN_MARKET_CAP:
+                cap_skip += 1
+                continue
         keep_codes.add(code)
     result = df[df[code_col].isin(keep_codes)].copy()
     return result, st_skip, board_skip, cap_skip

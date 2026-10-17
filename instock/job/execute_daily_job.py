@@ -27,6 +27,8 @@ import strategy_data_daily_job as sdj
 import backtest_data_daily_job as bdj
 import klinepattern_data_daily_job as kdj
 import selection_data_daily_job as sddj
+import stock_hist_daily_job as khj
+import limitup_data_daily_job as ludj
 
 __author__ = 'myh '
 __date__ = '2023/3/10 '
@@ -42,6 +44,10 @@ def main():
     hdj.main()
     # 第2.2步创建综合股票数据表
     sddj.main()
+    # 第2.3步同步本地K线仓库（增量，供后续策略/形态/回测任务直接读库）
+    khj.main()
+    # 第2.4步全量涨停名单（纯本地计算：选股快照 + K线回推连板数）
+    ludj.main()
     with concurrent.futures.ThreadPoolExecutor() as executor:
         # # 第3.1步创建股票其它基础数据表
         executor.submit(hdtj.main)

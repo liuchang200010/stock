@@ -73,24 +73,6 @@ def fetch_stocks_trade_date():
 
 
 # 读取当天股票数据
-def fetch_etfs(date):
-    try:
-        data = fee.fund_etf_spot_em()
-        if data is None or len(data.index) == 0:
-            return None
-        if date is None:
-            data.insert(0, 'date', datetime.datetime.now().strftime("%Y-%m-%d"))
-        else:
-            data.insert(0, 'date', date.strftime("%Y-%m-%d"))
-        data.columns = list(tbs.TABLE_CN_ETF_SPOT['columns'])
-        data = data.loc[data['new_price'].apply(is_open)]
-        return data
-    except Exception as e:
-        logging.error(f"stockfetch.fetch_etfs处理异常：{e}")
-    return None
-
-
-# 读取当天股票数据
 def fetch_stocks(date):
     try:
         data = she.stock_zh_a_spot_em()
@@ -366,6 +348,18 @@ def fetch_stock_hist(data_base, date_start=None, is_cache=True):
 
 # 增加读取股票缓存方法。加快处理速度。多线程解决效率
 def stock_hist_cache(code, date_start, date_end=None, is_cache=True, adjust=''):
+    # 优先读本地 K 线仓库（cn_stock_hist，前复权）：覆盖到上一交易日/今日即命中，
+    # 避免被限流时逐股在线拉取。date_end 指定截止日（回测场景）时不走本地。
+    if adjust == 'qfq' and date_end is None:
+        try:
+            import instock.core.stock_hist_store as store
+            data, freshness = store.read_local_qfq(code, date_start)
+            if data is not None:
+                if freshness == 'yesterday':
+                    logging.debug(f"stock_hist_cache[{code}]本地K线截止昨日（东财当日不可得），使用本地数据")
+                return data
+        except Exception as e:
+            logging.warning(f"stock_hist_cache[{code}]本地K线读取失败，回退在线: {e}")
     cache_dir = os.path.join(stock_hist_cache_path, date_start[0:6], date_start)
     # 如果没有文件夹创建一个。月文件夹和日文件夹。方便删除。
     try:

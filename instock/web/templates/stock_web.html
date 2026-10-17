@@ -30,6 +30,116 @@
         <div id="statusBar" style="width:100%;height:20px;"></div>
 </div>
 
+{% if web_module_data.table_name == 'cn_stock_limitup_full' %}
+<div id="lpOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9999;">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,0.35);padding:18px 22px;">
+        <div style="font-size:16px;font-weight:bold;margin-bottom:10px;">
+            涨停板块分布（<span id="lpDate"></span>，共 <span id="lpTotal"></span> 只）
+            <span id="lpClose" style="float:right;cursor:pointer;font-weight:normal;color:#888;">&#10005; 关闭</span>
+        </div>
+        <div style="display:flex;align-items:center;">
+            <svg id="lpPie" width="380" height="380" viewBox="0 0 380 380"></svg>
+            <div id="lpLegend" style="max-height:370px;overflow-y:auto;padding-left:14px;font-size:13px;line-height:1.9;min-width:230px;"></div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript">
+(function () {
+    // 标题栏加"板块分布图"按钮
+    const lpBtn = document.createElement('input');
+    lpBtn.type = 'button';
+    lpBtn.value = '板块分布图';
+    lpBtn.style.cssText = 'background-color:#307ECC;height:100%;margin-right:6px;cursor:pointer;';
+    document.querySelector('.table-header').appendChild(lpBtn);
+
+    const lpOverlay = document.getElementById('lpOverlay');
+    lpBtn.onclick = function () {
+        lpOverlay.style.display = 'block';
+        lpRender(document.getElementById('dateid').value);
+    };
+    document.getElementById('lpClose').onclick = function () { lpOverlay.style.display = 'none'; };
+    lpOverlay.addEventListener('click', function (e) { if (e.target === lpOverlay) lpOverlay.style.display = 'none'; });
+    // 日期切换联动（叠加在通用 changeDate 之上）
+    $('#dateid').on('changeDate', function () {
+        if (lpOverlay.style.display === 'block') lpRender(document.getElementById('dateid').value);
+    });
+
+    function lpColor(i) { return 'hsl(' + ((i * 47 + 15) % 360) + ',62%,52%)'; }
+
+    // 圆环扇区路径（顺时针，从正上方开始）
+    function lpArc(cx, cy, r1, r2, a0, a1) {
+        const large = (a1 - a0) > Math.PI ? 1 : 0;
+        const p = (r, a) => (cx + r * Math.cos(a)).toFixed(2) + ' ' + (cy + r * Math.sin(a)).toFixed(2);
+        return 'M' + p(r2, a0) + ' A' + r2 + ' ' + r2 + ' 0 ' + large + ' 1 ' + p(r2, a1)
+             + ' L' + p(r1, a1) + ' A' + r1 + ' ' + r1 + ' 0 ' + large + ' 0 ' + p(r1, a0) + ' Z';
+    }
+
+    function lpRender(dateStr) {
+        const svg = document.getElementById('lpPie');
+        const legend = document.getElementById('lpLegend');
+        document.getElementById('lpDate').textContent = dateStr;
+        svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#999">加载中...</text>';
+        legend.innerHTML = '';
+        fetch('/instock/api_data?name=cn_stock_limitup_full&date=' + dateStr)
+            .then(function (r) { return r.json(); })
+            .then(function (rows) {
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    document.getElementById('lpTotal').textContent = '0';
+                    svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#999">该日期无涨停数据</text>';
+                    return;
+                }
+                document.getElementById('lpTotal').textContent = rows.length;
+                // 按板块聚合
+                const counts = {};
+                rows.forEach(function (r) {
+                    const k = (r.industry && String(r.industry).trim()) || '未知';
+                    counts[k] = (counts[k] || 0) + 1;
+                });
+                let entries = Object.keys(counts).map(function (k) { return [k, counts[k]]; });
+                entries.sort(function (a, b) { return b[1] - a[1]; });
+                const TOP = 12;
+                if (entries.length > TOP) {
+                    const rest = entries.slice(TOP);
+                    const restSum = rest.reduce(function (s, e) { return s + e[1]; }, 0);
+                    entries = entries.slice(0, TOP).concat([['其他(' + rest.length + '个板块)', restSum]]);
+                }
+                const total = rows.length;
+                const cx = 190, cy = 190, r1 = 92, r2 = 165;
+                let html = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r1 + '" fill="none"/>';
+                let ang = -Math.PI / 2;
+                const twoPi = Math.PI * 2;
+                let legendHtml = '';
+                entries.forEach(function (e, i) {
+                    const frac = e[1] / total;
+                    const a0 = ang, a1 = ang + frac * twoPi - 0.0001;
+                    ang += frac * twoPi;
+                    const pct = (frac * 100).toFixed(1);
+                    const c = lpColor(i);
+                    html += '<path d="' + lpArc(cx, cy, r1, r2, a0, a1) + '" fill="' + c + '" stroke="#fff" stroke-width="1">'
+                          + '<title>' + e[0] + '：' + e[1] + ' 只（' + pct + '%）</title></path>';
+                    if (frac >= 0.03) {
+                        const mid = (a0 + a1) / 2, lr = (r1 + r2) / 2;
+                        html += '<text x="' + (cx + lr * Math.cos(mid)).toFixed(1) + '" y="' + (cy + lr * Math.sin(mid)).toFixed(1)
+                              + '" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#fff" font-weight="bold">' + pct + '%</text>';
+                    }
+                    legendHtml += '<div><span style="display:inline-block;width:12px;height:12px;background:' + c
+                               + ';margin-right:6px;border-radius:2px;"></span>'
+                               + e[0] + ' <b>' + e[1] + '</b> 只（' + pct + '%）</div>';
+                });
+                // 圆心总数
+                html += '<text x="' + cx + '" y="' + (cy - 8) + '" text-anchor="middle" font-size="26" font-weight="bold" fill="#333">' + total + '</text>'
+                      + '<text x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle" font-size="12" fill="#888">涨停总数</text>';
+                svg.innerHTML = html;
+                legend.innerHTML = legendHtml;
+            })
+            .catch(function () {
+                svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#c00">数据加载失败</text>';
+            });
+    }
+})();
+</script>
+{% end %}
+
 <script type="text/javascript">
     const nameParam = $.getUrlVar('table_name');
     let dateParam = "{{ date_now }}";

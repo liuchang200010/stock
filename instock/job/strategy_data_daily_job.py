@@ -155,6 +155,15 @@ def run_check(strategy_fun, table_name, stocks, date, workers=40):
 
 
 def main():
+    # 预热交易日历单例：singleton_type 所有类共享一把锁，stock_hist_data 初始化
+    # 会长时间持锁跑全市场K线读取；若 worker 线程内再构造 stock_trade_date 单例
+    # （read_local_qfq -> is_trade_date 路径），会与持锁线程互相等待形成死锁。
+    # 必须在任何 prepare 提交前于主线程完成预热。
+    try:
+        from instock.core.singleton_trade_date import stock_trade_date
+        stock_trade_date().get_data()
+    except Exception as e:
+        logging.warning(f"strategy_data_daily_job 交易日历预热失败: {e}")
     # 使用方法传递。
     with concurrent.futures.ThreadPoolExecutor() as executor:
         for strategy in tbs.TABLE_CN_STOCK_STRATEGIES:

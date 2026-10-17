@@ -75,6 +75,18 @@ class stock_web_module_data(metaclass=singleton_type):
         ), wmd.web_module_data(
             mode="query",
             type="股票基本数据",
+            ico="fa fa-fire",
+            name=tbs.TABLE_CN_STOCK_LIMITUP_FULL['cn'],
+            table_name=tbs.TABLE_CN_STOCK_LIMITUP_FULL['name'],
+            columns=tuple(tbs.TABLE_CN_STOCK_LIMITUP_FULL['columns']),
+            column_names=tbs.get_field_cns(tbs.TABLE_CN_STOCK_LIMITUP_FULL['columns']),
+            primary_key=[],
+            is_realtime=True,
+            order_columns=None,
+            order_by=" `limitup_days` DESC, `net_inflow` DESC"
+        ), wmd.web_module_data(
+            mode="query",
+            type="股票基本数据",
             ico="fa fa-book",
             name=tbs.TABLE_CN_STOCK_FUND_FLOW['cn'],
             table_name=tbs.TABLE_CN_STOCK_FUND_FLOW['name'],

@@ -40,7 +40,9 @@ MYSQL_CONN_URL = "mysql+pymysql://%s:%s@%s:%s/%s?charset=%s" % (
 logging.info(f"数据库链接信息：{ MYSQL_CONN_URL}")
 
 MYSQL_CONN_DBAPI = {'host': db_host, 'user': db_user, 'password': db_password, 'database': db_database,
-                    'charset': db_charset, 'port': db_port, 'autocommit': True}
+                    'charset': db_charset, 'port': db_port, 'autocommit': True,
+                    # connect_timeout: pymysql 默认无超时，Docker 端口转发偶发半开连接时会永久阻塞
+                    'connect_timeout': 15}
 
 MYSQL_CONN_TORNDB = {'host': f'{db_host}:{str(db_port)}', 'user': db_user, 'password': db_password,
                      'database': db_database, 'charset': db_charset, 'max_idle_time': 3600, 'connect_timeout': 1000}
@@ -58,10 +60,12 @@ def engine_to_db(to_db):
 
 # DB Api -数据库连接对象connection
 def get_connection():
-    try:
-        return pymysql.connect(**MYSQL_CONN_DBAPI)
-    except Exception as e:
-        logging.error(f"database.conn_not_cursor处理异常：{MYSQL_CONN_DBAPI}{e}")
+    # Docker 端口转发偶发半开连接导致 connect 挂起，connect_timeout 会抛异常，重试一次通常即恢复
+    for _ in range(2):
+        try:
+            return pymysql.connect(**MYSQL_CONN_DBAPI)
+        except Exception as e:
+            logging.error(f"database.conn_not_cursor处理异常：{MYSQL_CONN_DBAPI}{e}")
     return None
 
 

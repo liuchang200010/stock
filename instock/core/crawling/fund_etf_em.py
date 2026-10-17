@@ -22,9 +22,26 @@ def fund_etf_spot_em() -> pd.DataFrame:
     """
     东方财富-ETF 实时行情
     https://quote.eastmoney.com/center/gridlist.html#fund_etf
+    ETF 板块清单仅能通过 clist 翻页获取（无 ulist 批量备源可用），
+    被限流时采用外层重试：等待 WAF 封锁窗口（实测约 5~7 分钟）解除后再试。
     :return: ETF 实时行情
     :rtype: pandas.DataFrame
     """
+    last_error = None
+    for attempt in range(5):
+        try:
+            return _fund_etf_spot_once()
+        except Exception as e:
+            last_error = e
+            if attempt < 4:
+                wait = 150 * (attempt + 1)  # 2.5/5/7.5/10 分钟递增等待
+                print(f"fund_etf_spot_em：clist 被限流（{e}），{wait} 秒后第 {attempt + 2}/5 次尝试")
+                time.sleep(wait)
+    raise last_error
+
+
+def _fund_etf_spot_once() -> pd.DataFrame:
+    """clist 逐页翻页拉取 ETF 行情（单轮完整尝试）。"""
     url = "http://88.push2.eastmoney.com/api/qt/clist/get"
     page_size = 100
     page_current = 1

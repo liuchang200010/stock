@@ -290,6 +290,23 @@ CN_STOCK_HIST_DATA = {'name': 'fund_etf_hist_em', 'cn': '基金某时间段的�
                                   'ups_downs': {'type': FLOAT, 'cn': '涨跌额'},
                                   'turnover': {'type': FLOAT, 'cn': '换手率'}}}
 
+# 本地 K 线仓库：每日增量同步（东财优先/baostock 兜底），策略任务优先读本表，摆脱对外网接口的逐股依赖。
+# 存储前复权价（qfq）；除权检测：增量首根的隐含前收 != 本地末根收盘 -> 该股全窗口重拉覆盖。
+TABLE_CN_STOCK_HIST_STORE = {'name': 'cn_stock_hist', 'cn': '本地K线仓库',
+                             'columns': {'date': {'type': DATE, 'cn': '日期'},
+                                         'code': {'type': VARCHAR(6, _COLLATE), 'cn': '代码', 'size': 60},
+                                         'open': {'type': FLOAT, 'cn': '开盘'},
+                                         'close': {'type': FLOAT, 'cn': '收盘'},
+                                         'high': {'type': FLOAT, 'cn': '最高'},
+                                         'low': {'type': FLOAT, 'cn': '最低'},
+                                         'volume': {'type': FLOAT, 'cn': '成交量'},
+                                         'amount': {'type': FLOAT, 'cn': '成交额'},
+                                         'amplitude': {'type': FLOAT, 'cn': '振幅'},
+                                         'quote_change': {'type': FLOAT, 'cn': '涨跌幅'},
+                                         'ups_downs': {'type': FLOAT, 'cn': '涨跌额'},
+                                         'turnover': {'type': FLOAT, 'cn': '换手率'}},
+                             'primary_keys': ('`code`, `date`',)}
+
 TABLE_CN_STOCK_FOREIGN_KEY = {'name': 'cn_stock_foreign_key', 'cn': '股票外键',
                               'columns': {'date': {'type': DATE, 'cn': '日期', 'size': 0},
                                           'code': {'type': VARCHAR(6, _COLLATE), 'cn': '代码', 'size': 60},
@@ -1034,6 +1051,17 @@ TABLE_CN_STOCK_LIMITUP_REASON = {'name': 'cn_stock_limitup_reason', 'cn': '涨�
                                  'volume': {'type': BIGINT, 'cn': '成交量', 'size': 90},
                                  'deal_amount': {'type': BIGINT, 'cn': '成交额', 'size': 100},
                                  'dde': {'type': BIGINT, 'cn': 'DDE', 'size': 90}}}
+
+TABLE_CN_STOCK_LIMITUP_FULL = {'name': 'cn_stock_limitup_full', 'cn': '全量涨停名单',
+                     'columns': {'date': {'type': DATE, 'cn': '日期', 'size': 0},
+                                 'code': {'type': VARCHAR(6, _COLLATE), 'cn': '代码', 'size': 60},
+                                 'name': {'type': VARCHAR(20, _COLLATE), 'cn': '名称', 'size': 120},
+                                 'new_price': {'type': FLOAT, 'cn': '收盘价', 'size': 70},
+                                 'change_rate': {'type': FLOAT, 'cn': '涨幅%', 'size': 70},
+                                 'total_market_cap': {'type': FLOAT, 'cn': '市值(亿)', 'size': 100},
+                                 'industry': {'type': VARCHAR(50, _COLLATE), 'cn': '所属板块', 'size': 100},
+                                 'limitup_days': {'type': SmallInteger, 'cn': '连板', 'size': 60},
+                                 'net_inflow': {'type': FLOAT, 'cn': '净流入(万)', 'size': 100}}}
 
 
 def get_field_cn(key, table):

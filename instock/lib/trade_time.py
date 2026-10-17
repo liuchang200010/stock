@@ -121,7 +121,8 @@ def is_open(now_time):
 def get_trade_hist_interval(date):
     tmp_year, tmp_month, tmp_day = date.split("-")
     date_end = datetime.datetime(int(tmp_year), int(tmp_month), int(tmp_day))
-    date_start = (date_end + datetime.timedelta(days=-(365 * 3))).strftime("%Y%m%d")
+    # 约 250 个交易日（项目内最深依赖：年线/K线形态需 250 根），比原 3 年窗口减少 2/3 拉取量
+    date_start = (date_end + datetime.timedelta(days=-(380))).strftime("%Y%m%d")
 
     now_time = datetime.datetime.now()
     now_date = now_time.date()
