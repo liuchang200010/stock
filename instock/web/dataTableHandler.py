@@ -51,7 +51,7 @@ class GetStockDataHandler(webBase.BaseHandler, ABC):
         web_module_data = sswmd.stock_web_module_data().get_data(name)
         self.set_header('Content-Type', 'application/json;charset=UTF-8')
 
-        if date is None:
+        if date is None or not web_module_data.has_date:
             where = ""
         else:
             # where = f" WHERE `date` = '{date}'"
@@ -66,6 +66,9 @@ class GetStockDataHandler(webBase.BaseHandler, ABC):
             order_columns = f",{web_module_data.order_columns}"
 
         sql = f" SELECT *{order_columns} FROM `{web_module_data.table_name}`{where}{order_by}"
-        data = self.db.query(sql,date)
+        if where:
+            data = self.db.query(sql, date)
+        else:
+            data = self.db.query(sql)
 
         self.write(json.dumps(data, cls=MyEncoder))

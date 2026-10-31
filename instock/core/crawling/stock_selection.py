@@ -132,11 +132,13 @@ def stock_selection() -> pd.DataFrame:
     page_current = 1
     sty = ""  # 初始值 "SECUCODE,SECURITY_CODE,SECURITY_NAME_ABBR,CHANGE_RATE"
     for k in cols:
+        if 'map' not in cols[k]:
+            continue  # 本地人工维护列（如 qualified）不参与 API 请求
         sty = f"{sty},{cols[k]['map']}"
     url = "https://data.eastmoney.com/dataapi/xuangu/list"
     params = {
         "sty": sty[1:],
-        "filter": "(MARKET+in+(\"上交所主板\",\"深交所主板\",\"深交所创业板\"))(NEW_PRICE>0)",
+        "filter": "(MARKET+in+(\"上交所主板\",\"上交所科创板\",\"深交所主板\",\"深交所创业板\"))(NEW_PRICE>0)",
         "p": page_current,
         "ps": page_size,
         "source": "SELECT_SECURITIES",

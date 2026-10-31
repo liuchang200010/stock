@@ -29,6 +29,9 @@ import klinepattern_data_daily_job as kdj
 import selection_data_daily_job as sddj
 import stock_hist_daily_job as khj
 import limitup_data_daily_job as ludj
+import amount_top_daily_job as atj
+import hot_sector_daily_job as hsj
+import market_emotion_yearly_job as mej
 
 __author__ = 'myh '
 __date__ = '2023/3/10 '
@@ -48,6 +51,12 @@ def main():
     khj.main()
     # 第2.4步全量涨停名单（纯本地计算：选股快照 + K线回推连板数）
     ludj.main()
+    # 第2.5步成交额50强（纯本地计算：选股快照按成交额排序前50）
+    atj.main()
+    # 第2.6步热门板块云图（纯本地计算：涨停板块 ∩ 成交额50强板块交集）
+    hsj.main()
+    # 第2.7步历年成交额情绪统计（指数成交额抓取+按年系数/预测/误差）
+    mej.main()
     with concurrent.futures.ThreadPoolExecutor() as executor:
         # # 第3.1步创建股票其它基础数据表
         executor.submit(hdtj.main)

@@ -45,6 +45,8 @@ class Application(tornado.web.Application):
             (r"/instock/data/indicators", dataIndicatorsHandler.GetDataIndicatorsHandler),
             # 加入关注
             (r"/instock/control/attention", dataIndicatorsHandler.SaveCollectHandler),
+            # 人工标记是否合格（选股复盘）
+            (r"/instock/control/qualified", dataIndicatorsHandler.SaveQualifiedHandler),
         ]
         settings = dict(  # 配置
             template_path=os.path.join(os.path.dirname(__file__), "templates"),

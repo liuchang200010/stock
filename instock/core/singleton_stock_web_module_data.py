@@ -23,7 +23,7 @@ class stock_web_module_data(metaclass=singleton_type):
             primary_key=[],
             is_realtime=False,
             order_columns=f"(SELECT `datetime` FROM `{tbs.TABLE_CN_STOCK_ATTENTION['name']}` WHERE `code`=`{tbs.TABLE_CN_STOCK_SELECTION['name']}`.`code`) AS `cdatetime`",
-            order_by=" `cdatetime` DESC"
+            order_by=" `total_market_cap` IS NULL, `total_market_cap` ASC, `cdatetime` DESC"
         ), wmd.web_module_data(
             mode="query",
             type="股票基本数据",
@@ -84,6 +84,43 @@ class stock_web_module_data(metaclass=singleton_type):
             is_realtime=True,
             order_columns=None,
             order_by=" `limitup_days` DESC, `net_inflow` DESC"
+        ), wmd.web_module_data(
+            mode="query",
+            type="股票基本数据",
+            ico="fa fa-bar-chart",
+            name=tbs.TABLE_CN_STOCK_AMOUNT_TOP50['cn'],
+            table_name=tbs.TABLE_CN_STOCK_AMOUNT_TOP50['name'],
+            columns=tuple(tbs.TABLE_CN_STOCK_AMOUNT_TOP50['columns']),
+            column_names=tbs.get_field_cns(tbs.TABLE_CN_STOCK_AMOUNT_TOP50['columns']),
+            primary_key=[],
+            is_realtime=True,
+            order_columns=None,
+            order_by=" `deal_amount` DESC"
+        ), wmd.web_module_data(
+            mode="query",
+            type="股票基本数据",
+            ico="fa fa-cloud",
+            name=tbs.TABLE_CN_STOCK_HOT_SECTORS['cn'],
+            table_name=tbs.TABLE_CN_STOCK_HOT_SECTORS['name'],
+            columns=tuple(tbs.TABLE_CN_STOCK_HOT_SECTORS['columns']),
+            column_names=tbs.get_field_cns(tbs.TABLE_CN_STOCK_HOT_SECTORS['columns']),
+            primary_key=[],
+            is_realtime=True,
+            order_columns=None,
+            order_by=" `weight` DESC, `limitup_count` DESC"
+        ), wmd.web_module_data(
+            mode="query",
+            type="股票基本数据",
+            ico="fa fa-line-chart",
+            name=tbs.TABLE_CN_MARKET_EMOTION['cn'],
+            table_name=tbs.TABLE_CN_MARKET_EMOTION['name'],
+            columns=tuple(tbs.TABLE_CN_MARKET_EMOTION['columns']),
+            column_names=tbs.get_field_cns(tbs.TABLE_CN_MARKET_EMOTION['columns']),
+            primary_key=[],
+            is_realtime=True,
+            order_columns=None,
+            order_by=" `year` DESC",
+            has_date=False
         ), wmd.web_module_data(
             mode="query",
             type="股票基本数据",
@@ -239,7 +276,7 @@ class stock_web_module_data(metaclass=singleton_type):
                     primary_key=[],
                     is_realtime=False,
                     order_columns=f"(SELECT `datetime` FROM `{tbs.TABLE_CN_STOCK_ATTENTION['name']}` WHERE `code`=`{table['name']}`.`code`) AS `cdatetime`",
-                    order_by=" `cdatetime` DESC"
+                    order_by=" `total_market_cap` IS NULL, `total_market_cap` ASC, `cdatetime` DESC"
                 )
             )
         for tmp in self.data_list:

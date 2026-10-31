@@ -64,3 +64,28 @@ class SaveCollectHandler(webBase.BaseHandler, ABC):
             # self.write(err)
             # return
         self.write("{\"data\":[{}]}")
+
+# 人工标记"是否合格"（选股数据复盘用：单元格自由填写，任意文本实时保存，空=清除 存 NULL）
+class SaveQualifiedHandler(webBase.BaseHandler, ABC):
+    @gen.coroutine
+    def get(self):
+        import instock.core.singleton_stock_web_module_data as sswmd
+        name = self.get_argument("name", default=None, strip=False)
+        date = self.get_argument("date", default=None, strip=False)
+        code = self.get_argument("code", default=None, strip=False)
+        value = self.get_argument("value", default=None, strip=False)
+        self.set_header('Content-Type', 'application/json;charset=UTF-8')
+        try:
+            if not name or not date or not code:
+                raise ValueError("missing params")
+            if value is not None and len(value) > 100:
+                raise ValueError("value too long")
+            wmd = sswmd.stock_web_module_data().get_data(name)
+            if wmd is None or 'qualified' not in wmd.columns:
+                raise ValueError("table not support")
+            sql = f"UPDATE `{wmd.table_name}` SET `qualified` = %s WHERE `date` = %s AND `code` = %s"
+            self.db.execute(sql, value if value else None, date, code)
+            self.write('{"ok":true}')
+        except Exception as e:
+            self.set_status(500)
+            self.write('{"error":"%s"}' % str(e)[:200])

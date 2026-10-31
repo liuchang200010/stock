@@ -418,8 +418,10 @@ TABLE_CN_STOCK_STRATEGY_QUOTE = {'columns': {
 
 # 策略表列 = 外键(date/code/name) + 行情快照字段 + 回测收益率列
 # 注意：收益率列必须保持在最后——回测任务以最后一列(rate_100)是否为 NULL 判断待回填
+# qualified(是否合格，人工点击标记)插在 industry 之后、rate 列之前，不能放到 rate_100 后面
 _strategy_columns = TABLE_CN_STOCK_FOREIGN_KEY['columns'].copy()
 _strategy_columns.update(TABLE_CN_STOCK_STRATEGY_QUOTE['columns'])
+_strategy_columns['qualified'] = {'type': VARCHAR(100, _COLLATE), 'cn': '是否合格', 'size': 80}
 _strategy_columns.update(TABLE_CN_STOCK_BACKTEST_DATA['columns'])
 
 TABLE_CN_STOCK_STRATEGIES = [
@@ -578,6 +580,7 @@ TABLE_CN_STOCK_SELECTION = {'name': 'cn_stock_selection', 'cn': '综合选股',
                                                          'map': 'LISTING_DATE'},
                                         'industry': {'type': VARCHAR(50, _COLLATE), 'cn': '行业', 'size': 100,
                                                      'map': 'INDUSTRY'},
+                                        'qualified': {'type': VARCHAR(100, _COLLATE), 'cn': '是否合格', 'size': 80},
                                         'area': {'type': VARCHAR(50, _COLLATE), 'cn': '地区', 'size': 70, 'map': 'AREA'},
                                         'concept': {'type': VARCHAR(800, _COLLATE), 'cn': '概念', 'size': 150,
                                                     'map': 'CONCEPT'},
@@ -1063,6 +1066,46 @@ TABLE_CN_STOCK_LIMITUP_FULL = {'name': 'cn_stock_limitup_full', 'cn': '全量涨
                                  'limitup_days': {'type': SmallInteger, 'cn': '连板', 'size': 60},
                                  'net_inflow': {'type': FLOAT, 'cn': '净流入(万)', 'size': 100}}}
 
+TABLE_CN_STOCK_AMOUNT_TOP50 = {'name': 'cn_stock_amount_top50', 'cn': '成交额50强',
+                     'columns': {'date': {'type': DATE, 'cn': '日期', 'size': 0},
+                                 'code': {'type': VARCHAR(6, _COLLATE), 'cn': '代码', 'size': 60},
+                                 'name': {'type': VARCHAR(20, _COLLATE), 'cn': '名称', 'size': 120},
+                                 'new_price': {'type': FLOAT, 'cn': '收盘价', 'size': 70},
+                                 'change_rate': {'type': FLOAT, 'cn': '涨跌幅%', 'size': 70},
+                                 'total_market_cap': {'type': FLOAT, 'cn': '市值(亿)', 'size': 100},
+                                 'industry': {'type': VARCHAR(50, _COLLATE), 'cn': '所属板块', 'size': 100},
+                                 'deal_amount': {'type': FLOAT, 'cn': '成交额(亿)', 'size': 110}}}
+
+TABLE_CN_STOCK_HOT_SECTORS = {'name': 'cn_stock_hot_sectors', 'cn': '热门板块云图',
+                     'columns': {'date': {'type': DATE, 'cn': '日期', 'size': 0},
+                                 'industry': {'type': VARCHAR(50, _COLLATE), 'cn': '板块', 'size': 110},
+                                 'limitup_count': {'type': SmallInteger, 'cn': '涨停家数', 'size': 90},
+                                 'limitup_names': {'type': VARCHAR(500, _COLLATE), 'cn': '涨停股', 'size': 0},
+                                 'top50_count': {'type': SmallInteger, 'cn': '50强家数', 'size': 90},
+                                 'top50_names': {'type': VARCHAR(500, _COLLATE), 'cn': '50强股', 'size': 0},
+                                 'weight': {'type': SmallInteger, 'cn': '热度', 'size': 70}}}
+
+TABLE_CN_MARKET_DAILY_AMOUNT = {'name': 'cn_market_daily_amount', 'cn': '全市场每日成交额',
+                     'columns': {'date': {'type': DATE, 'cn': '日期', 'size': 0},
+                                 'sh_amount': {'type': FLOAT, 'cn': '沪市(亿)', 'size': 100},
+                                 'sz_amount': {'type': FLOAT, 'cn': '深市(亿)', 'size': 100},
+                                 'total_amount': {'type': FLOAT, 'cn': '两市合计(亿)', 'size': 110}}}
+
+TABLE_CN_MARKET_EMOTION = {'name': 'cn_market_emotion', 'cn': '历年成交额情绪统计',
+                     'columns': {'year': {'type': VARCHAR(10, _COLLATE), 'cn': '年份', 'size': 70},
+                                 'trade_days': {'type': SmallInteger, 'cn': '交易日数', 'size': 90},
+                                 'max_amount': {'type': FLOAT, 'cn': '最大成交额(亿)', 'size': 110},
+                                 'min_amount': {'type': FLOAT, 'cn': '最小成交额(亿)', 'size': 110},
+                                 'avg_amount': {'type': FLOAT, 'cn': '平均成交额(亿)', 'size': 110},
+                                 'high_ratio': {'type': FLOAT, 'cn': '高涨系数', 'size': 90},
+                                 'low_ratio': {'type': FLOAT, 'cn': '冰点系数', 'size': 90},
+                                 'high_pred': {'type': FLOAT, 'cn': '高涨预测(亿)', 'size': 100},
+                                 'low_pred': {'type': FLOAT, 'cn': '冰点预测(亿)', 'size': 100},
+                                 'err_high': {'type': FLOAT, 'cn': '高涨误差(亿)', 'size': 100},
+                                 'err_rate_high': {'type': FLOAT, 'cn': '高涨误差%', 'size': 100},
+                                 'err_low': {'type': FLOAT, 'cn': '冰点误差(亿)', 'size': 100},
+                                 'err_rate_low': {'type': FLOAT, 'cn': '冰点误差%', 'size': 100}}}
+
 
 def get_field_cn(key, table):
     f = table.get('columns').get(key)
@@ -1082,6 +1125,11 @@ def get_field_cns(cols):
                          "headerStyle": {"font": "bold 9pt Calibri", "wordWrap": "true"}, "conditionalFormats": [
                     {"ruleType": "formulaRule", "formula": "@>0", "style": {"foreColor": "red"}},
                     {"ruleType": "formulaRule", "formula": "@<0", "style": {"foreColor": "green"}}]})
+        elif k == 'qualified':
+            data.append({"value": k, "caption": cols[k]['cn'], "width": cols[k]['size'],
+                         "headerStyle": {"font": "bold 9pt Calibri", "wordWrap": "true"}, "conditionalFormats": [
+                    {"ruleType": "formulaRule", "formula": "@=\"X\"", "style": {"foreColor": "red"}},
+                    {"ruleType": "formulaRule", "formula": "@=\"合格\"", "style": {"foreColor": "green"}}]})
         else:
             data.append({"value": k, "caption": cols[k]['cn'], "width": cols[k]['size'],
                          "headerStyle": {"font": "bold 9pt Calibri", "wordWrap": "true"}})

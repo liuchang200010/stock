@@ -30,11 +30,11 @@
         <div id="statusBar" style="width:100%;height:20px;"></div>
 </div>
 
-{% if web_module_data.table_name == 'cn_stock_limitup_full' %}
+{% if web_module_data.table_name in ('cn_stock_limitup_full', 'cn_stock_amount_top50') %}
 <div id="lpOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9999;">
     <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,0.35);padding:18px 22px;">
         <div style="font-size:16px;font-weight:bold;margin-bottom:10px;">
-            涨停板块分布（<span id="lpDate"></span>，共 <span id="lpTotal"></span> 只）
+            板块分布（<span id="lpDate"></span>，共 <span id="lpTotal"></span> 只）
             <span id="lpClose" style="float:right;cursor:pointer;font-weight:normal;color:#888;">&#10005; 关闭</span>
         </div>
         <div style="display:flex;align-items:center;">
@@ -80,12 +80,12 @@
         document.getElementById('lpDate').textContent = dateStr;
         svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#999">加载中...</text>';
         legend.innerHTML = '';
-        fetch('/instock/api_data?name=cn_stock_limitup_full&date=' + dateStr)
+        fetch('/instock/api_data?name={{ web_module_data.table_name }}&date=' + dateStr)
             .then(function (r) { return r.json(); })
             .then(function (rows) {
                 if (!Array.isArray(rows) || rows.length === 0) {
                     document.getElementById('lpTotal').textContent = '0';
-                    svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#999">该日期无涨停数据</text>';
+                    svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#999">该日期无数据</text>';
                     return;
                 }
                 document.getElementById('lpTotal').textContent = rows.length;
@@ -128,12 +128,112 @@
                 });
                 // 圆心总数
                 html += '<text x="' + cx + '" y="' + (cy - 8) + '" text-anchor="middle" font-size="26" font-weight="bold" fill="#333">' + total + '</text>'
-                      + '<text x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle" font-size="12" fill="#888">涨停总数</text>';
+                      + '<text x="' + cx + '" y="' + (cy + 16) + '" text-anchor="middle" font-size="12" fill="#888">总数</text>';
                 svg.innerHTML = html;
                 legend.innerHTML = legendHtml;
             })
             .catch(function () {
                 svg.innerHTML = '<text x="190" y="190" text-anchor="middle" fill="#c00">数据加载失败</text>';
+            });
+    }
+})();
+</script>
+{% end %}
+
+{% if web_module_data.table_name == 'cn_stock_hot_sectors' %}
+<div id="wsOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9999;">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,0.35);padding:16px 20px;">
+        <div style="font-size:16px;font-weight:bold;margin-bottom:4px;">
+            热门板块云图（涨停 ∩ 成交额50强 交集）· <span id="wsDate"></span>
+            <span id="wsClose" style="float:right;cursor:pointer;font-weight:normal;color:#888;">&#10005; 关闭</span>
+        </div>
+        <div style="font-size:12px;color:#888;margin-bottom:6px;">
+            字号越大热度越高（热度 = 涨停家数 + 50强家数）；颜色越红越靠前；悬浮查看个股明细
+        </div>
+        <svg id="wsCloud" width="920" height="430" viewBox="0 0 920 430" style="background:#fafbfc;border-radius:6px;"></svg>
+    </div>
+</div>
+<script type="text/javascript">
+(function () {
+    const wsBtn = document.createElement('input');
+    wsBtn.type = 'button';
+    wsBtn.value = '板块云图';
+    wsBtn.style.cssText = 'background-color:#307ECC;height:100%;margin-right:6px;cursor:pointer;';
+    document.querySelector('.table-header').appendChild(wsBtn);
+
+    const wsOverlay = document.getElementById('wsOverlay');
+    wsBtn.onclick = function () {
+        wsOverlay.style.display = 'block';
+        wsRender(document.getElementById('dateid').value);
+    };
+    document.getElementById('wsClose').onclick = function () { wsOverlay.style.display = 'none'; };
+    wsOverlay.addEventListener('click', function (e) { if (e.target === wsOverlay) wsOverlay.style.display = 'none'; });
+    $('#dateid').on('changeDate', function () {
+        if (wsOverlay.style.display === 'block') wsRender(document.getElementById('dateid').value);
+    });
+
+    // 估算文本像素宽（中文≈字号，ASCII≈0.55字号）
+    function wsTextWidth(text, size) {
+        let w = 0;
+        for (let i = 0; i < text.length; i++) {
+            w += text.charCodeAt(i) > 255 ? size : size * 0.55;
+        }
+        return w;
+    }
+
+    function wsRender(dateStr) {
+        const svg = document.getElementById('wsCloud');
+        document.getElementById('wsDate').textContent = dateStr;
+        svg.innerHTML = '<text x="460" y="215" text-anchor="middle" fill="#999">加载中...</text>';
+        fetch('/instock/api_data?name={{ web_module_data.table_name }}&date=' + dateStr)
+            .then(function (r) { return r.json(); })
+            .then(function (rows) {
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    svg.innerHTML = '<text x="460" y="215" text-anchor="middle" fill="#999">该日期无数据（当日无涨停与50强板块交集）</text>';
+                    return;
+                }
+                const W = 920, H = 430, PAD = 14;
+                const wMax = Math.max.apply(null, rows.map(function (r) { return r.weight || 0; }));
+                const wMin = Math.min.apply(null, rows.map(function (r) { return r.weight || 0; }));
+                const placed = [];   // 已放置矩形 [x0,y0,x1,y1]
+                function hits(x0, y0, x1, y1) {
+                    for (let i = 0; i < placed.length; i++) {
+                        const p = placed[i];
+                        if (x0 < p[2] && x1 > p[0] && y0 < p[3] && y1 > p[1]) return true;
+                    }
+                    return false;
+                }
+                let html = '';
+                rows.forEach(function (r, i) {
+                    const w = r.weight || 1;
+                    // 字号 15~52 随热度线性放大
+                    const size = wMax === wMin ? 30 : Math.round(15 + (w - wMin) / (wMax - wMin) * 37);
+                    const color = 'hsl(' + Math.round(6 + 42 * (i / Math.max(rows.length - 1, 1))) + ',70%,46%)';
+                    const text = r.industry;
+                    const tw = wsTextWidth(text, size) + 6, th = size * 1.28;
+                    // 中心吸引随机布局 + 碰撞检测
+                    let cx, cy, x0, y0, x1, y1, ok = false;
+                    for (let t = 0; t < 120; t++) {
+                        cx = W / 2 + (Math.random() - 0.5) * (W - 2 * PAD - tw) * Math.pow(t / 120, 0.35);
+                        cy = H / 2 + (Math.random() - 0.5) * (H - 2 * PAD - th) * Math.pow(t / 120, 0.35);
+                        x0 = cx - tw / 2; y0 = cy - th / 2; x1 = cx + tw / 2; y1 = cy + th / 2;
+                        if (x0 < PAD || y0 < PAD || x1 > W - PAD || y1 > H - PAD) continue;
+                        if (!hits(x0, y0, x1, y1)) { ok = true; break; }
+                    }
+                    if (!ok) return;
+                    placed.push([x0, y0, x1, y1]);
+                    const tip = '涨停 ' + (r.limitup_count || 0) + ' 家：' + (r.limitup_names || '无')
+                              + '\n50强 ' + (r.top50_count || 0) + ' 家：' + (r.top50_names || '无')
+                              + '\n热度：' + w;
+                    html += '<text x="' + cx.toFixed(1) + '" y="' + cy.toFixed(1) + '" text-anchor="middle" dominant-baseline="central"'
+                          + ' font-size="' + size + '" font-weight="bold" fill="' + color + '" style="cursor:default;">'
+                          + '<title>' + tip.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</title>'
+                          + text + '</text>';
+                });
+                svg.innerHTML = html || '<text x="460" y="215" text-anchor="middle" fill="#999">板块过多无法布局</text>';
+            })
+            .catch(function () {
+                svg.innerHTML = '<text x="460" y="215" text-anchor="middle" fill="#c00">数据加载失败</text>';
             });
     }
 })();
@@ -166,6 +266,36 @@
             });
             hyperlinkStyle.cellType = hl;
             colInfos[1].style = hyperlinkStyle;
+        }
+        // "是否合格"列：自由填写，编辑结束实时写库；其余列锁定不可编辑
+        const qIdx = colInfos.findIndex(function (c) { return c.value === 'qualified'; });
+        if (qIdx > 0) {
+            colInfos.forEach(function (c, i) {
+                if (i === qIdx) return;
+                c.style = Object.assign({}, c.style || {}, { allowEditInCell: false });
+            });
+            sheet.bind(GC.Spread.Sheets.Events.EditEnded, function (e, args) {
+                if (args.col !== qIdx) return;
+                const sh = sheet.getSheet();
+                const code = sh.getValue(args.row, 1);
+                let d = sh.getValue(args.row, 0);
+                const dateStr = (d instanceof Date) ? d.format('yyyy-MM-dd') : String(d).slice(0, 10);
+                const val = (args.editingText !== undefined && args.editingText !== null)
+                    ? String(args.editingText).trim() : sh.getText(args.row, qIdx).trim();
+                fetch('/instock/control/qualified?name=' + encodeURIComponent(nameParam)
+                    + '&date=' + dateStr + '&code=' + encodeURIComponent(code)
+                    + '&value=' + encodeURIComponent(val))
+                    .then(function (r) {
+                        if (!r.ok) {
+                            alert('保存失败，请重试');
+                            return myView.fetch().then(function () { sheet.setDataView(myView); });
+                        }
+                    })
+                    .catch(function () {
+                        alert('保存失败，请重试');
+                        myView.fetch().then(function () { sheet.setDataView(myView); });
+                    });
+            });
         }
         let statusBar = initStatusBar(spread);
         initSpread(spread, statusBar);

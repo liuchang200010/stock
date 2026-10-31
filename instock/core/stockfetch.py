@@ -41,8 +41,8 @@ if not os.path.exists(stock_hist_cache_path):
 # 300、301开头的股票是创业板股票；400开头的股票是三板市场股票。
 # 430、83、87开头的股票是北证A股
 def is_a_stock(code):
-    # 上证A股  # 深证A股
-    return code.startswith(('600', '601', '603', '605', '000', '001', '002', '003', '300', '301'))
+    # 上证A股  # 深证A股  # 科创板688/689（2026-10-18起纳入，此前漏抓导致寒武纪等缺席）
+    return code.startswith(('600', '601', '603', '605', '688', '689', '000', '001', '002', '003', '300', '301'))
 
 
 # 过滤掉 st 股票。
@@ -95,7 +95,9 @@ def fetch_stock_selection():
         data = sst.stock_selection()
         if data is None or len(data.index) == 0:
             return None
-        data.columns = list(tbs.TABLE_CN_STOCK_SELECTION['columns'])
+        # 按位置赋列名：仅包含带 map 的 API 字段列（本地人工维护列如 qualified 不在爬取结果中）
+        sel_cols = tbs.TABLE_CN_STOCK_SELECTION['columns']
+        data.columns = [k for k in sel_cols if 'map' in sel_cols[k]]
         data.drop_duplicates('code', keep='last', inplace=True)
         return data
     except Exception as e:
